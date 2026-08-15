@@ -8,6 +8,15 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <!-- JSZip (一括ZIP作成用) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- @imgly/background-removal が内部で 'onnxruntime-web' という裸のモジュール名を
+       import しているため、ブラウザが解決できるようimport mapで実URLに対応付ける -->
+  <script type="importmap">
+  {
+    "imports": {
+      "onnxruntime-web": "https://esm.sh/onnxruntime-web@1.21.0"
+    }
+  }
+  </script>
   <style>
     :root {
       --primary-color: #007bff;
@@ -129,6 +138,15 @@
       font-size: 14px;
       font-weight: bold;
     }
+    #app-version {
+      margin-top: 40px;
+      padding-top: 12px;
+      border-top: 1px solid #e9ecef;
+      text-align: center;
+      font-size: 11px;
+      color: #999;
+      line-height: 1.6;
+    }
   </style>
 </head>
 <body>
@@ -168,6 +186,8 @@
   <div id="status"></div>
   <button id="download-all-btn">一括ZIPダウンロード (.zip)</button>
   <div id="output" class="preview-container"></div>
+
+  <div id="app-version"></div>
 
   <script src="app.js" type="module"></script>
 </body>
