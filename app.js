@@ -2,7 +2,7 @@ import { removeBackground } from 'https://unpkg.com/@imgly/background-removal@1.
 
 // ==== バージョン情報 ====
 // index.html / app.js / sw.js を更新するたびにここも更新する
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const BUILD_DATE = '2026-08-15';
 const BG_REMOVAL_LIB_VERSION = '1.7.0';
 
@@ -120,8 +120,17 @@ async function processFiles(files) {
     statusDiv.textContent = `背景削除中... (${i + 1}/${files.length}): ${file.name}`;
 
     try {
-      // 1. AIによる背景削除を実行
-      const rawNoBgBlob = await removeBackground(file);
+      statusDiv.textContent = `画像を準備中... (${i + 1}/${files.length}): ${file.name}`;
+
+      // 0. 入力画像に透過（アルファ）が含まれる場合、白背景で平坦化してからAIに渡す。
+      //    透過部分の裏に残っている不定なRGB値がAIの誤認識を招くのを防ぐための前処理。
+      const flattenedBlob = await flattenToOpaqueBlob(file);
+
+      // 1. AIによる背景削除を実行（最高精度のフル精度モデルを明示指定）
+      const rawNoBgBlob = await removeBackground(flattenedBlob, {
+        model: 'isnet',
+        output: { format: 'image/png', quality: 1 },
+      });
 
       statusDiv.textContent = `リサイズ・最適化処理中... (${i + 1}/${files.length}): ${file.name}`;
 
@@ -208,6 +217,33 @@ function loadToCanvas(blob, maxWidth, targetWidth, targetHeight) {
     };
     img.onerror = reject;
     img.src = URL.createObjectURL(blob);
+  });
+}
+
+/**
+ * 入力画像を白背景で平坦化したBlobを返す。
+ * 透過PNG/WebPをそのままAIモデルに渡すと、透明部分の裏に残っている
+ * 不定なRGB値を「背景」と誤認識するケースがあるため、解析前に一度
+ * 不透明化しておくことで誤検出を減らす。
+ */
+function flattenToOpaqueBlob(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob((blob2) => {
+        if (blob2) resolve(blob2);
+        else reject(new Error('flatten failed'));
+      }, 'image/png');
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
   });
 }
 
