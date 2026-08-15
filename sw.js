@@ -1,11 +1,12 @@
-const CACHE_NAME = 'bg-remover-opt-v2';
+const CACHE_NAME = 'bg-remover-opt-v3';
 const ASSETS = [
   './',
   './index.html',
   './app.js',
   './manifest.json',
   './icon.svg',
-  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+  'https://unpkg.com/@imgly/background-removal@1.7.0/dist/index.mjs'
 ];
 
 self.addEventListener('install', (e) => {
