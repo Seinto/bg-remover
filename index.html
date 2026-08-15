@@ -138,6 +138,24 @@
       font-size: 14px;
       font-weight: bold;
     }
+    .card-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .edit-btn {
+      font-size: 12px;
+      padding: 5px 8px;
+      border: 1px solid var(--primary-color);
+      background: #fff;
+      color: var(--primary-color);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .edit-btn:hover {
+      background: #eef6ff;
+    }
     #app-version {
       margin-top: 40px;
       padding-top: 12px;
@@ -146,6 +164,102 @@
       font-size: 11px;
       color: #999;
       line-height: 1.6;
+    }
+
+    /* ==== 手動補正エディター ==== */
+    #edit-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 1000;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .editor-box {
+      background: #fff;
+      border-radius: 10px;
+      padding: 16px;
+      max-width: 95vw;
+      max-height: 95vh;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .editor-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      justify-content: center;
+    }
+    .editor-toolbar button {
+      padding: 8px 14px;
+      border: 1px solid #ced4da;
+      background: #fff;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .editor-toolbar button.active {
+      background: var(--primary-color);
+      color: #fff;
+      border-color: var(--primary-color);
+    }
+    .editor-toolbar .brush-size-control {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+    .editor-canvas-wrap {
+      position: relative;
+      overflow: auto;
+      max-width: 90vw;
+      max-height: 60vh;
+      /* 市松模様背景 (透過確認用) */
+      background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+      border: 1px solid #ddd;
+      touch-action: none;
+    }
+    #edit-canvas {
+      display: block;
+      max-width: 100%;
+      cursor: none;
+    }
+    #brush-cursor {
+      display: none;
+      position: fixed;
+      pointer-events: none;
+      border: 2px solid var(--primary-color);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 1001;
+    }
+    .editor-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    .editor-actions button {
+      padding: 10px 18px;
+      border-radius: 6px;
+      border: none;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    #edit-cancel-btn {
+      background: #e9ecef;
+      color: #333;
+    }
+    #edit-save-btn {
+      background: #28a745;
+      color: #fff;
+      font-weight: bold;
     }
   </style>
 </head>
@@ -188,6 +302,29 @@
   <div id="output" class="preview-container"></div>
 
   <div id="app-version"></div>
+
+  <!-- 手動補正エディター -->
+  <div id="edit-modal">
+    <div class="editor-box">
+      <div class="editor-toolbar">
+        <button type="button" id="mode-erase" class="active">🩹 消す</button>
+        <button type="button" id="mode-restore">↩️ 戻す</button>
+        <div class="brush-size-control">
+          <label for="brush-size">ブラシサイズ</label>
+          <input type="range" id="brush-size" min="5" max="60" value="20">
+        </div>
+        <button type="button" id="edit-reset-btn">最初からやり直す</button>
+      </div>
+      <div class="editor-canvas-wrap">
+        <canvas id="edit-canvas"></canvas>
+      </div>
+      <div class="editor-actions">
+        <button type="button" id="edit-cancel-btn">キャンセル</button>
+        <button type="button" id="edit-save-btn">保存して反映</button>
+      </div>
+    </div>
+  </div>
+  <div id="brush-cursor"></div>
 
   <script src="app.js" type="module"></script>
 </body>
