@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bg-remover-opt-v4';
+const CACHE_NAME = 'bg-remover-opt-v5';
 const ASSETS = [
   './',
   './index.html',
