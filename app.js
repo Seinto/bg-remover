@@ -2,7 +2,7 @@ import { removeBackground } from 'https://unpkg.com/@imgly/background-removal@1.
 
 // ==== バージョン情報 ====
 // index.html / app.js / sw.js を更新するたびにここも更新する
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-08-15';
 const BG_REMOVAL_LIB_VERSION = '1.7.0';
 
@@ -14,8 +14,6 @@ if ('serviceWorker' in navigator) {
 renderVersionInfo();
 
 // 画面下部にバージョン情報を描画する
-// Service Workerが実際に握っているキャッシュ名も併せて表示し、
-// 「新しいコードがちゃんと反映されているか」をひと目で確認できるようにする
 async function renderVersionInfo() {
   const versionDiv = document.getElementById('app-version');
   if (!versionDiv) return;
@@ -50,7 +48,24 @@ const formatSelect = document.getElementById('format-select');
 const qualityRange = document.getElementById('quality-range');
 const qualityValue = document.getElementById('quality-value');
 
-let processedBlobs = [];
+// 編集モーダル要素
+const editModal = document.getElementById('edit-modal');
+const editCanvas = document.getElementById('edit-canvas');
+const editCtx = editCanvas.getContext('2d');
+const brushSizeRange = document.getElementById('brush-size');
+const modeEraseBtn = document.getElementById('mode-erase');
+const modeRestoreBtn = document.getElementById('mode-restore');
+const editResetBtn = document.getElementById('edit-reset-btn');
+const editSaveBtn = document.getElementById('edit-save-btn');
+const editCancelBtn = document.getElementById('edit-cancel-btn');
+const brushCursor = document.getElementById('brush-cursor');
+
+// items: { name, mimeType, quality, masterCanvas(透過保持), originalCanvas(元画像/戻す用), blob }
+let items = [];
+let editingIndex = null;
+let editMode = 'erase'; // 'erase' | 'restore'
+let isDrawing = false;
+let resetSnapshot = null; // 編集開始時点のImageData（リセット用）
 
 // 品質スライダーの表示更新
 qualityRange.addEventListener('input', (e) => {
@@ -91,7 +106,7 @@ fileInput.addEventListener('change', (e) => {
 // ファイル一括処理ロジック
 async function processFiles(files) {
   outputDiv.innerHTML = '';
-  processedBlobs = [];
+  items = [];
   downloadAllBtn.style.display = 'none';
 
   // 現在の設定値を取得
@@ -110,48 +125,76 @@ async function processFiles(files) {
 
       statusDiv.textContent = `リサイズ・最適化処理中... (${i + 1}/${files.length}): ${file.name}`;
 
-      // 2. Canvasを使ってリサイズおよび品質・フォーマット変換
-      const optimizedBlob = await processImageCanvas(rawNoBgBlob, maxWidth, mimeType, quality);
+      // 2. 透過を保持したまま、リサイズ済みの「マスターCanvas」を作る
+      const masterCanvas = await loadToCanvas(rawNoBgBlob, maxWidth);
+      // 3. 「戻す」ブラシ用に、同じ解像度で元画像（背景削除前）も描画しておく
+      const originalCanvas = await loadToCanvas(file, maxWidth, masterCanvas.width, masterCanvas.height);
+
+      // 4. 指定フォーマット・品質でBlobにエンコード
+      const outputBlob = await encodeCanvas(masterCanvas, mimeType, quality);
       const outputFileName = `no-bg_${file.name.replace(/\.[^/.]+$/, "")}.${extension}`;
 
-      processedBlobs.push({ name: outputFileName, blob: optimizedBlob });
-
-      // 3. UIにプレビュー表示
-      const url = URL.createObjectURL(optimizedBlob);
-      const sizeKB = (optimizedBlob.size / 1024).toFixed(1);
-      
-      const card = document.createElement('div');
-      card.className = 'preview-card';
-      card.innerHTML = `
-        <img src="${url}" alt="${outputFileName}">
-        <div class="file-size">${sizeKB} KB (${extension.toUpperCase()})</div>
-        <a href="${url}" download="${outputFileName}">保存</a>
-      `;
-      outputDiv.appendChild(card);
+      const item = {
+        name: outputFileName,
+        mimeType,
+        quality,
+        masterCanvas,
+        originalCanvas,
+        blob: outputBlob,
+      };
+      items.push(item);
+      renderPreviewCard(item, items.length - 1);
 
     } catch (error) {
       console.error(`エラー (${file.name}):`, error);
     }
   }
 
-  statusDiv.textContent = `すべての処理が完了しました！（計 ${processedBlobs.length} 件）`;
-  if (processedBlobs.length > 0) {
+  statusDiv.textContent = `すべての処理が完了しました！（計 ${items.length} 件）`;
+  if (items.length > 0) {
     downloadAllBtn.style.display = 'block';
   }
 }
 
+// プレビューカードを描画（新規追加 / 再描画で共用）
+function renderPreviewCard(item, index) {
+  const url = URL.createObjectURL(item.blob);
+  const sizeKB = (item.blob.size / 1024).toFixed(1);
+  const extension = item.mimeType === 'image/png' ? 'PNG' : (item.mimeType === 'image/jpeg' ? 'JPG' : 'WEBP');
+
+  let card = outputDiv.querySelector(`[data-index="${index}"]`);
+  if (!card) {
+    card = document.createElement('div');
+    card.className = 'preview-card';
+    card.dataset.index = String(index);
+    outputDiv.appendChild(card);
+  }
+
+  card.innerHTML = `
+    <img src="${url}" alt="${item.name}">
+    <div class="file-size">${sizeKB} KB (${extension})</div>
+    <div class="card-actions">
+      <button type="button" class="edit-btn">手動補正</button>
+      <a href="${url}" download="${item.name}">保存</a>
+    </div>
+  `;
+
+  card.querySelector('.edit-btn').addEventListener('click', () => openEditor(index));
+}
+
 /**
- * Canvasを使用して画像のリサイズ、フォーマット変換、品質圧縮を行う関数
+ * 画像(File/Blob)を読み込み、透過を保持したまま指定サイズのCanvasに描画する。
+ * targetWidth/targetHeightを渡した場合はそのサイズに強制フィットさせる
+ * （「戻す」用の元画像Canvasを、背景削除後Canvasと同じ座標系に揃えるため）
  */
-function processImageCanvas(blob, maxWidth, mimeType, quality) {
+function loadToCanvas(blob, maxWidth, targetWidth, targetHeight) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      let width = img.width;
-      let height = img.height;
+      let width = targetWidth || img.width;
+      let height = targetHeight || img.height;
 
-      // リサイズ計算（アスペクト比固定）
-      if (maxWidth && width > maxWidth) {
+      if (!targetWidth && maxWidth && width > maxWidth) {
         height = Math.round((height * maxWidth) / width);
         width = maxWidth;
       }
@@ -159,41 +202,181 @@ function processImageCanvas(blob, maxWidth, mimeType, quality) {
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
-
-      const ctx = canvas.getContext('2d');
-
-      // JPEGの場合は背景を白で塗りつぶす（透過維持できないため）
-      if (mimeType === 'image/jpeg') {
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, width, height);
-      }
-
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
       ctx.drawImage(img, 0, 0, width, height);
-
-      // Canvasから指定フォーマット・品質のBlobを生成
-      canvas.toBlob((resultBlob) => {
-        if (resultBlob) {
-          resolve(resultBlob);
-        } else {
-          reject(new Error('Canvas to Blob conversion failed.'));
-        }
-      }, mimeType, quality);
+      resolve(canvas);
     };
-
     img.onerror = reject;
     img.src = URL.createObjectURL(blob);
   });
 }
 
+/**
+ * 透過保持Canvasを、指定フォーマット・品質のBlobにエンコードする。
+ * JPEGの場合はこの時点で初めて白背景で塗りつぶす（編集中は常に透過を保持するため）
+ */
+function encodeCanvas(sourceCanvas, mimeType, quality) {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = sourceCanvas.width;
+    canvas.height = sourceCanvas.height;
+    const ctx = canvas.getContext('2d');
+
+    if (mimeType === 'image/jpeg') {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.drawImage(sourceCanvas, 0, 0);
+
+    canvas.toBlob((resultBlob) => {
+      if (resultBlob) resolve(resultBlob);
+      else reject(new Error('Canvas to Blob conversion failed.'));
+    }, mimeType, quality);
+  });
+}
+
+// ==== 手動補正エディター ====
+
+function openEditor(index) {
+  editingIndex = index;
+  const item = items[index];
+
+  editCanvas.width = item.masterCanvas.width;
+  editCanvas.height = item.masterCanvas.height;
+  editCtx.clearRect(0, 0, editCanvas.width, editCanvas.height);
+  editCtx.drawImage(item.masterCanvas, 0, 0);
+
+  resetSnapshot = editCtx.getImageData(0, 0, editCanvas.width, editCanvas.height);
+
+  setEditMode('erase');
+  editModal.style.display = 'flex';
+}
+
+function closeEditor() {
+  editModal.style.display = 'none';
+  editingIndex = null;
+  resetSnapshot = null;
+}
+
+function setEditMode(mode) {
+  editMode = mode;
+  modeEraseBtn.classList.toggle('active', mode === 'erase');
+  modeRestoreBtn.classList.toggle('active', mode === 'restore');
+}
+
+modeEraseBtn.addEventListener('click', () => setEditMode('erase'));
+modeRestoreBtn.addEventListener('click', () => setEditMode('restore'));
+
+editResetBtn.addEventListener('click', () => {
+  if (!resetSnapshot) return;
+  editCtx.putImageData(resetSnapshot, 0, 0);
+});
+
+editCancelBtn.addEventListener('click', closeEditor);
+
+editSaveBtn.addEventListener('click', async () => {
+  if (editingIndex === null) return;
+  const item = items[editingIndex];
+
+  // 編集結果をマスターCanvasに反映
+  const ctx = item.masterCanvas.getContext('2d');
+  ctx.clearRect(0, 0, item.masterCanvas.width, item.masterCanvas.height);
+  ctx.drawImage(editCanvas, 0, 0);
+
+  item.blob = await encodeCanvas(item.masterCanvas, item.mimeType, item.quality);
+  renderPreviewCard(item, editingIndex);
+
+  closeEditor();
+});
+
+// キャンバス上の座標（表示上の座標 → 実ピクセル座標に変換）
+function getCanvasPos(evt) {
+  const rect = editCanvas.getBoundingClientRect();
+  const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+  const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+  const scaleX = editCanvas.width / rect.width;
+  const scaleY = editCanvas.height / rect.height;
+  return {
+    x: (clientX - rect.left) * scaleX,
+    y: (clientY - rect.top) * scaleY,
+  };
+}
+
+function paintAt(x, y) {
+  const item = items[editingIndex];
+  const radius = parseInt(brushSizeRange.value, 10);
+
+  if (editMode === 'erase') {
+    editCtx.save();
+    editCtx.globalCompositeOperation = 'destination-out';
+    editCtx.beginPath();
+    editCtx.arc(x, y, radius, 0, Math.PI * 2);
+    editCtx.fill();
+    editCtx.restore();
+  } else {
+    // 戻す: 元画像Canvasの該当円形範囲だけをクリップして描画
+    editCtx.save();
+    editCtx.beginPath();
+    editCtx.arc(x, y, radius, 0, Math.PI * 2);
+    editCtx.closePath();
+    editCtx.clip();
+    editCtx.globalCompositeOperation = 'source-over';
+    editCtx.drawImage(item.originalCanvas, 0, 0);
+    editCtx.restore();
+  }
+}
+
+function updateBrushCursor(evt) {
+  const rect = editCanvas.getBoundingClientRect();
+  const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+  const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+  const displayScale = rect.width / editCanvas.width;
+  const size = parseInt(brushSizeRange.value, 10) * 2 * displayScale;
+  brushCursor.style.width = `${size}px`;
+  brushCursor.style.height = `${size}px`;
+  brushCursor.style.left = `${clientX}px`;
+  brushCursor.style.top = `${clientY}px`;
+}
+
+function handlePointerDown(evt) {
+  evt.preventDefault();
+  isDrawing = true;
+  const { x, y } = getCanvasPos(evt);
+  paintAt(x, y);
+  updateBrushCursor(evt);
+}
+
+function handlePointerMove(evt) {
+  updateBrushCursor(evt);
+  if (!isDrawing) return;
+  evt.preventDefault();
+  const { x, y } = getCanvasPos(evt);
+  paintAt(x, y);
+}
+
+function handlePointerUp() {
+  isDrawing = false;
+}
+
+editCanvas.addEventListener('mousedown', handlePointerDown);
+editCanvas.addEventListener('mousemove', handlePointerMove);
+window.addEventListener('mouseup', handlePointerUp);
+editCanvas.addEventListener('mouseenter', () => { brushCursor.style.display = 'block'; });
+editCanvas.addEventListener('mouseleave', () => { brushCursor.style.display = 'none'; });
+
+editCanvas.addEventListener('touchstart', handlePointerDown, { passive: false });
+editCanvas.addEventListener('touchmove', handlePointerMove, { passive: false });
+window.addEventListener('touchend', handlePointerUp);
+
 // 一括ZIPダウンロード
 downloadAllBtn.addEventListener('click', async () => {
-  if (processedBlobs.length === 0) return;
+  if (items.length === 0) return;
 
   downloadAllBtn.disabled = true;
   downloadAllBtn.textContent = 'ZIPファイル作成中...';
 
   const zip = new JSZip();
-  processedBlobs.forEach(item => {
+  items.forEach(item => {
     zip.file(item.name, item.blob);
   });
 
