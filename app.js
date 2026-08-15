@@ -1,4 +1,4 @@
-import { removeBackground } from 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.3.0/dist/browser.mjs';
+import { removeBackground } from 'https://unpkg.com/@imgly/background-removal@1.3.0/dist/browser.mjs';
 
 // Service Worker の登録
 if ('serviceWorker' in navigator) {
