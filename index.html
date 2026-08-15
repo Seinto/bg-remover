@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>背景削除 & 編集 PWA</title>
+  <link rel="manifest" href="manifest.json">
+  <!-- JSZip (一括ZIP作成用) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    :root {
+      --primary-color: #007bff;
+      --bg-color: #f8f9fa;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .settings-panel {
+      background: var(--bg-color);
+      border: 1px solid #e9ecef;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+    .setting-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .setting-item label {
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .setting-item input[type="number"],
+    .setting-item select {
+      padding: 8px;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .quality-control {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #drop-zone {
+      border: 2px dashed var(--primary-color);
+      border-radius: 12px;
+      padding: 40px 20px;
+      background: #fff;
+      text-align: center;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    #drop-zone.hover {
+      background: #eef6ff;
+      border-color: #0056b3;
+    }
+    #file-input {
+      display: none;
+    }
+    #status {
+      margin: 20px 0;
+      text-align: center;
+      font-weight: bold;
+    }
+    #download-all-btn {
+      display: none;
+      margin: 20px auto;
+      padding: 12px 28px;
+      font-size: 16px;
+      font-weight: bold;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #download-all-btn:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    .preview-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      justify-content: center;
+      margin-top: 20px;
+    }
+    .preview-card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      width: 160px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+      text-align: center;
+    }
+    .preview-card img {
+      max-width: 100%;
+      height: 120px;
+      object-fit: contain;
+      /* 市松模様背景 (透過確認用) */
+      background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%);
+      background-size: 10px 10px;
+      background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
+    }
+    .preview-card .file-size {
+      font-size: 12px;
+      color: #666;
+      margin: 6px 0;
+    }
+    .preview-card a {
+      display: inline-block;
+      color: var(--primary-color);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>背景削除 &amp; 画像最適化 PWA</h1>
+
+  <!-- 設定パネル -->
+  <div class="settings-panel">
+    <div class="setting-item">
+      <label for="max-width">最大幅 (px):</label>
+      <input type="number" id="max-width" placeholder="例: 1200 (空欄で原寸)">
+    </div>
+    
+    <div class="setting-item">
+      <label for="format-select">出力フォーマット:</label>
+      <select id="format-select">
+        <option value="image/webp" selected>WebP (透過維持・高圧縮)</option>
+        <option value="image/png">PNG (透過維持・無劣化)</option>
+        <option value="image/jpeg">JPEG (背景白・透過非対応)</option>
+      </select>
+    </div>
+
+    <div class="setting-item">
+      <label for="quality-range">画像品質 (圧縮率): <span id="quality-value">80%</span></label>
+      <div class="quality-control">
+        <input type="range" id="quality-range" min="10" max="100" value="80">
+      </div>
+    </div>
+  </div>
+  
+  <!-- ドラッグ＆ドロップエリア -->
+  <div id="drop-zone">
+    <p>ここに画像をドラッグ＆ドロップ<br>またはクリックしてファイルを選択</p>
+    <input type="file" id="file-input" accept="image/*" multiple>
+  </div>
+
+  <div id="status"></div>
+  <button id="download-all-btn">一括ZIPダウンロード (.zip)</button>
+  <div id="output" class="preview-container"></div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
