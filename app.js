@@ -1,8 +1,41 @@
 import { removeBackground } from 'https://unpkg.com/@imgly/background-removal@1.7.0/dist/index.mjs';
 
+// ==== バージョン情報 ====
+// index.html / app.js / sw.js を更新するたびにここも更新する
+const APP_VERSION = '1.1.0';
+const BUILD_DATE = '2026-08-15';
+const BG_REMOVAL_LIB_VERSION = '1.7.0';
+
 // Service Worker の登録
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js');
+}
+
+renderVersionInfo();
+
+// 画面下部にバージョン情報を描画する
+// Service Workerが実際に握っているキャッシュ名も併せて表示し、
+// 「新しいコードがちゃんと反映されているか」をひと目で確認できるようにする
+async function renderVersionInfo() {
+  const versionDiv = document.getElementById('app-version');
+  if (!versionDiv) return;
+
+  let cacheLine = 'Service Worker: 未登録';
+  if ('caches' in window) {
+    try {
+      const keys = await caches.keys();
+      const swCache = keys.find((k) => k.startsWith('bg-remover-opt-'));
+      cacheLine = swCache ? `Cache: ${swCache}` : 'Cache: (未作成 / 初回読み込み中)';
+    } catch (e) {
+      cacheLine = 'Cache: 取得失敗';
+    }
+  }
+
+  versionDiv.innerHTML = `
+    App v${APP_VERSION} (${BUILD_DATE})<br>
+    @imgly/background-removal v${BG_REMOVAL_LIB_VERSION}<br>
+    ${cacheLine}
+  `;
 }
 
 const dropZone = document.getElementById('drop-zone');
